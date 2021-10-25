@@ -1,10 +1,18 @@
 import argparse
+import hashlib
 import pandas as pd
 import typing
 
 from components import *
 from datetime import datetime
-from utils import io, feature_generators, models
+from joblib import dump, load
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import (
+    f1_score,
+    accuracy_score,
+    precision_score,
+    recall_score,
+)
 
 parser = argparse.ArgumentParser(description="Run inference.")
 parser.add_argument("--start", type=str, help="Start date", nargs="?")
@@ -44,11 +52,13 @@ def load_data(start_date: str, end_date: str) -> pd.DataFrame:
             df = pd.read_parquet("data/april.pq")
         elif month == 5:
             df = pd.read_parquet("data/may.pq")
+        dfs.append(df)
 
     df = pd.concat(dfs)
     return df
 
 
+@Cleaning().run(auto_log=True)
 def clean_data(
     df: pd.DataFrame, start_date: str = None, end_date: str = None
 ) -> pd.DataFrame:
@@ -74,27 +84,54 @@ def clean_data(
 
 
 @Featuregen().run(auto_log=True)
-def featurize_data(df: pd.DataFrame) -> pd.DataFrame:
+def featurize_data(
+    df: pd.DataFrame, tip_fraction: float = 0.1, imputation_value: float = -1.0
+) -> pd.DataFrame:
     """
     This function constructs features from the dataframe.
     """
-    pickup_features = feature_generators.Pickup().compute(df)
-
-    trip_features = feature_generators.Trip().compute(df)
-    categorical_features = feature_generators.Categorical().compute(df)
-    label = feature_generators.HighTip().compute(df, tip_fraction=0.1)
-
-    # Concatenate features
-    features_df = pd.concat(
-        [
-            pickup_features,
-            trip_features,
-            categorical_features,
-            label,
-            df["tpep_pickup_datetime"].to_frame(),
-        ],
-        axis=1,
+    # Compute pickup features
+    pickup_weekday = df.tpep_pickup_datetime.dt.weekday
+    pickup_hour = df.tpep_pickup_datetime.dt.hour
+    pickup_minute = df.tpep_pickup_datetime.dt.minute
+    work_hours = (
+        (pickup_weekday >= 0)
+        & (pickup_weekday <= 4)
+        & (pickup_hour >= 8)
+        & (pickup_hour <= 18)
     )
+
+    # Compute time and speed features
+    trip_time = (df.tpep_dropoff_datetime - df.tpep_pickup_datetime).dt.seconds
+    trip_speed = df.trip_distance / (trip_time + 1e7)
+
+    # Compute label
+    tip_fraction_col = df.tip_amount / df.fare_amount
+
+    # Join all features, identifier, and label
+    features_df = pd.DataFrame(
+        {
+            "tpep_pickup_datetime": df.tpep_pickup_datetime,
+            "pickup_weekday": pickup_weekday,
+            "pickup_hour": pickup_hour,
+            "pickup_minute": pickup_minute,
+            "work_hours": work_hours,
+            "trip_time": trip_time,
+            "trip_speed": trip_speed,
+            "trip_distance": df.trip_distance,
+            "passenger_count": df.passenger_count,
+            "congestion_surcharge": df.congestion_surcharge,
+            "loc_code_diffs": (df.DOLocationID - df.PULocationID).abs(),
+            "PULocationID": df.PULocationID,
+            "DOLocationID": df.DOLocationID,
+            "RatecodeID": df.RatecodeID,
+            "VendorID": df.VendorID,
+            "tip_amount": df.tip_amount,
+            "fare_amount": df.fare_amount,
+            "tip_fraction": tip_fraction_col,
+            "high_tip_indicator": tip_fraction_col > tip_fraction,
+        }
+    ).fillna(imputation_value)
 
     return features_df
 
@@ -118,72 +155,85 @@ def train_test_split(
     return train_df, test_df
 
 
-@Training().run(auto_log=True, output_vars=["rfc_path"])
+# Score model
+def score(df, model, feature_columns, label_column) -> pd.DataFrame:
+    rounded_preds = model.predict_proba(df[feature_columns].values)[
+        :, 1
+    ].round()
+    return {
+        "accuracy_score": accuracy_score(
+            df[label_column].values, rounded_preds
+        ),
+        "f1_score": f1_score(df[label_column].values, rounded_preds),
+        "precision_score": precision_score(
+            df[label_column].values, rounded_preds
+        ),
+        "recall_score": recall_score(df[label_column].values, rounded_preds),
+    }
+
+
+@Training().run(auto_log=True)
 def train_model(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
-    label_column: str = "high_tip_indicator",
+    feature_columns: typing.List[str],
+    label_column: str,
 ) -> None:
     """
     This function runs training on the dataframe.
     """
 
-    feature_columns = [
-        "pickup_weekday",
-        "pickup_hour",
-        "pickup_minute",
-        "work_hours",
-        "passenger_count",
-        "trip_distance",
-        # "PULocationID",
-        # "DOLocationID",
-        "RatecodeID",
-        "congestion_surcharge",
-        "loc_code_diffs",
-        # "trip_speed"
-    ]
-
     params = {"max_depth": 4, "n_estimators": 10}
 
     # Create and train model
-    mw = models.RandomForestModelWrapper(
-        feature_columns=feature_columns, model_params=params
-    )
-    mw.add_data_path("train_df", "train_df")
-    mw.add_data_path("test_df", "test_df")
-    mw.train(train_df, label_column)
+    model = RandomForestClassifier(**params)
+    model.fit(train_df[feature_columns].values, train_df[label_column].values)
 
-    # Score model
-    train_scores = mw.score(train_df, label_column)
-    test_scores = mw.score(test_df, label_column)
-    mw.add_metrics(train_scores)
-    mw.add_metrics(test_scores)
-
-    # Print paths and metrics
-    print("Metrics:")
-    print(mw.get_metrics())
+    # Print scores
+    train_scores = score(train_df, model, feature_columns, label_column)
+    test_scores = score(test_df, model, feature_columns, label_column)
+    print("Train scores:")
+    print(train_scores)
+    print("Test scores:")
+    print(test_scores)
 
     # Print feature importances
-    feature_importances = mw.get_feature_importances()
+    feature_importances = (
+        pd.DataFrame(
+            {
+                "feature": feature_columns,
+                "importance": model.feature_importances_,
+            }
+        )
+        .sort_values(by="importance", ascending=False)
+        .reset_index(drop=True)
+    )
     print(feature_importances)
 
     # Save model
-    rfc_path = mw.save("training/models/tip")
-    print(f"Saved {rfc_path}")
+    dump(model, "model.joblib")
+    print(hashlib.sha256(repr(model).encode()).digest())
 
 
-@Inference().run(auto_log=True, input_vars=["rfc_path"])
-def inference(features_df: pd.DataFrame):
+@Inference().run(auto_log=True)
+def inference(
+    features_df: pd.DataFrame,
+    feature_columns: typing.List[str],
+    label_column: str,
+    model=load("model.joblib"),
+):
     """
     This function runs inference on the dataframe.
     """
     # Load model
-    mw = models.RandomForestModelWrapper.load("training/models/tip")
-    rfc_path = io.get_output_path("training/models/tip")
+    # model = load("model.joblib")
+    print(hashlib.sha256(repr(model).encode()).digest())
 
     # Predict
-    predictions = mw.predict(features_df)
-    scores = mw.score(features_df, "high_tip_indicator")
+    predictions = model.predict_proba(features_df[feature_columns].values)[
+        :, 1
+    ]
+    scores = score(features_df, model, feature_columns, label_column)
     predictions_df = features_df
     predictions_df["prediction"] = predictions
 
@@ -202,14 +252,32 @@ if __name__ == "__main__":
     clean_df = clean_data(df, start_date, end_date)
     features_df = featurize_data(clean_df)
 
+    feature_columns = [
+        "pickup_weekday",
+        "pickup_hour",
+        "pickup_minute",
+        "work_hours",
+        "passenger_count",
+        "trip_distance",
+        # "PULocationID",
+        # "DOLocationID",
+        "RatecodeID",
+        "congestion_surcharge",
+        "loc_code_diffs",
+        # "trip_speed"
+    ]
+    label_column = "high_tip_indicator"
+
     # If training, train a model and save it
     if mode == "training":
         train_df, test_df = train_test_split(features_df)
-        train_model(train_df, test_df)
+        train_model(train_df, test_df, feature_columns, label_column)
 
     # If inference, load the model and make predictions
     elif mode == "inference":
-        predictions, scores = inference(features_df)
+        predictions, scores = inference(
+            features_df, feature_columns, label_column
+        )
         print(scores)
 
     else:
