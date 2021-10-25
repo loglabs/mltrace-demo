@@ -294,7 +294,7 @@ Each mltrace component accepts a list of `beforeTests` and `afterTests`. We can 
 ```python
 from tests import *
 
-@Featuregen(afterTests=[OutliersTest])
+@Featuregen(afterTests=[OutliersTest]).run(auto_log=True)
 def featuregen(...):
 ```
 
