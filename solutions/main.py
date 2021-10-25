@@ -1,3 +1,5 @@
+# SOLUTION: main.py
+
 import argparse
 import pandas as pd
 import typing
@@ -62,6 +64,7 @@ def load_data(start_date: str, end_date: str) -> pd.DataFrame:
     return df
 
 
+@Cleaning().run(auto_log=True)
 def clean_data(
     df: pd.DataFrame, start_date: str = None, end_date: str = None
 ) -> pd.DataFrame:
@@ -86,6 +89,7 @@ def clean_data(
     return clean_df
 
 
+@Featuregen().run(auto_log=True)
 def featurize_data(
     df: pd.DataFrame, tip_fraction: float = 0.1, imputation_value: float = -1.0
 ) -> pd.DataFrame:
@@ -138,6 +142,7 @@ def featurize_data(
     return features_df
 
 
+@TrainTestSplit().run(auto_log=True)
 def train_test_split(
     df: pd.DataFrame,
 ) -> typing.Tuple[pd.DataFrame, pd.DataFrame]:
@@ -173,6 +178,7 @@ def score(df, model, feature_columns, label_column) -> pd.DataFrame:
     }
 
 
+@Training().run(auto_log=True)
 def train_model(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
@@ -216,6 +222,7 @@ def train_model(
     dump(model, "model.joblib")
 
 
+@Inference().run(auto_log=True)
 def inference(
     features_df: pd.DataFrame,
     feature_columns: typing.List[str],

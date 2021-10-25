@@ -1,9 +1,9 @@
 """
-components.py
+SOLUTION: components.py
 
 This file defines components of our ML pipeline and their respective
-metadata. Your exercise is to add tests to this file in the component
-specs.
+metadata. Some of the components contain tests to execute before and
+after the components are run.
 """
 
 from mltrace import Component
@@ -24,7 +24,7 @@ class Cleaning(Component):
 
 
 class Featuregen(Component):
-    def __init__(self, beforeTests=[], afterTests=[]):
+    def __init__(self, beforeTests=[], afterTests=[OutliersTest]):
 
         super().__init__(
             name="featuregen",
@@ -37,7 +37,7 @@ class Featuregen(Component):
 
 
 class TrainTestSplit(Component):
-    def __init__(self, beforeTests=[], afterTests=[]):
+    def __init__(self, beforeTests=[], afterTests=[TrainingAssumptionsTest]):
 
         super().__init__(
             name="splitting",
@@ -50,7 +50,7 @@ class TrainTestSplit(Component):
 
 
 class Training(Component):
-    def __init__(self, beforeTests=[], afterTests=[]):
+    def __init__(self, beforeTests=[], afterTests=[ModelIntegrityTest]):
 
         super().__init__(
             name="training",

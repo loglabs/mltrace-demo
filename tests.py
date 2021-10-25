@@ -1,3 +1,9 @@
+"""
+components.py
+
+This file defines tests to run on inputs and outputs of components.
+"""
+
 from mltrace import Test
 
 import pandas as pd
@@ -17,6 +23,7 @@ class OutliersTest(Test):
 
         # Compute stats
         stats = num_df.describe()
+        print("Dataframe statistics:")
         print(stats)
 
     def testZScore(
@@ -37,8 +44,10 @@ class OutliersTest(Test):
         ).abs()
 
         if (z_scores > stdev_cutoff).to_numpy().sum() > threshold * len(df):
-            print((z_scores > stdev_cutoff).to_numpy().sum())
-            print(threshold * len(df))
+            print(
+                f"Number of outliers: {(z_scores > stdev_cutoff).to_numpy().sum()}"
+            )
+            print(f"Outlier threshold: {threshold * len(df)}")
             raise Exception("There are outlier values!")
 
 
