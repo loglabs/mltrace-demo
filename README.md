@@ -90,7 +90,7 @@ We have subsampled the data from January to May 2020 to simplify the tutorial. T
 
 Any applied ML pipeline is essentially a series of functions applied one after the other, such as data transformations, models, and output transformations. For simplicity, the training and inference pipelines are both included in one Python file: `main.py`. The only external tools  These pipelines have the following components:
 
-![Pipelines](./res/pipelines.png)
+![Pipelines](./res/pipeline.png)
 
 In the diagram above, both pipelines share some components, such as cleaning and feature generation. In the pipeline code (`main.py`), each component corresponds to a different Python function. 
 
