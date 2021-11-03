@@ -1,4 +1,5 @@
 import argparse
+import os
 import pandas as pd
 import typing
 
@@ -220,11 +221,14 @@ def inference(
     features_df: pd.DataFrame,
     feature_columns: typing.List[str],
     label_column: str,
-    model=load("model.joblib"),
+    model=load("model.joblib") if os.path.exists("model.joblib") else None,
 ):
     """
     This function runs inference on the dataframe.
     """
+    if not model:
+        raise ValueError("Please run this pipeline in training mode first!")
+    
     # Predict
     predictions = model.predict_proba(features_df[feature_columns].values)[
         :, 1
