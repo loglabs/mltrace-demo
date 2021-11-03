@@ -228,7 +228,7 @@ def inference(
     """
     if not model:
         raise ValueError("Please run this pipeline in training mode first!")
-    
+
     # Predict
     predictions = model.predict_proba(features_df[feature_columns].values)[
         :, 1
