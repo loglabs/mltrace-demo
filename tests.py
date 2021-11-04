@@ -1,5 +1,5 @@
 """
-components.py
+tests.py
 
 This file defines tests to run on inputs and outputs of components.
 """
